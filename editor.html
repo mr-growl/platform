@@ -1,0 +1,1169 @@
+<script type="text/javascript" src="../common/pixi.min.js"></script>
+<script type="text/javascript" src="../common/jquery.js"></script>
+<script type="text/javascript">
+/************************************************************************************************************
+	TODO LIST
+
+	-animation of sprites
+	-2 layers of backgrounds & one of foreground (just need images now)
+		first background (level 2) is half speed so it need to be half the size of the main screen
+		second background (level 3) is a quarter speed so needs to be a quarter the size
+		the first foreground (level 0) is twice the speed so needs to be twice as big
+
+
+************************************************************************************************************/
+	/*
+	   FEATURES TO IMPLEMENT:
+	   shooting
+	 */
+	var crawl_speed = 1;
+	var low_speed = 4;
+	var high_speed = 8;
+	var max_speed = low_speed;
+	var max_drop = 8;
+	var acc = 0.4;
+	var dec = 1.2;
+	var air_dec = 0.1;
+	var h_speed = 0;
+	var v_speed = 0;
+	var max_v_drop = 24*12;
+	var v_drop = 0;
+	var jumpspeed = -8;
+	var varijump = true;
+	var duck = false;
+	var current_h_dirrection = 1;
+
+	var max_bullets = 30;
+	var bullets = [];
+	var bullet_speed = 20;
+	var flying_bullets = [];
+
+	var ladder_motion = 0;
+	var on_ladder = false;
+	var ladder_climb = 3;
+
+	var basic_enemies = [];
+	var enemy_radius = 900;
+	var basic_enemy_speed = 1;
+
+	var going = 0;
+	var current_h_dirrection = -1;
+	var levelmap;
+	var levelmap_width;
+	var levelmap_height;
+	var levelmap; // = document.createElement('canvas');
+        var levelctx; // = heightmap.getContext('2d');
+        var leveldata;
+	var textures = {};
+	var level_sprites;
+	var collision_map;
+	var jumping = true;
+	var dbljump = false;
+	var walljump = false;
+	var last_walljump_dir = 0;
+	var walljump_dir = 0;
+	var walljumpx = 0;
+	var walljumped = false;
+	var max_wall_jump_frames = 240;
+	var wall_jump_frames = 0;
+	var wall_jump_hit = false;
+	var txt_dummy;
+	var txt_dummy_duck;
+
+	var level_texture_0;
+
+	var viewport = {x:800,y:600};
+	var viewport_half = {x:parseInt(viewport.x/2),y:parseInt(viewport.y/2)};
+	var viewport_bound = {x:0,y:0};
+
+	var editor = {x:1280,y:768};
+
+	var cnt_level_preview = new PIXI.Container();
+	var gfx_preview_border = new PIXI.Graphics();
+	//cnt_level_preview.scale = {x:0.5,y:0.5};
+	var cnt_character_bubble = new PIXI.Container();
+
+	var key_reg =
+	{
+		up:false,
+		down:false,
+		left:false,
+		right:false,
+		jump:false,
+		run:false,
+		shoot:false
+	}
+	sketch_pad = document.createElement('canvas');
+       	sketch_ctx = sketch_pad.getContext('2d');
+
+	//This will be our camera top/left value
+	var camera_view = 
+	{
+		x:0,
+		y:0
+	}
+	var level_bounds =
+	{
+		top:0,
+		left:0,
+		bottom:0,
+		right:0
+	}
+
+	var keystates = [];
+
+	for(var i=0;i<=100;i++)
+	{
+		keystates[i] = false;
+	}
+
+	var jumptime=false;
+
+	var current_level = 0;
+	
+	var collision_points =
+	[
+		{
+			//bottom center
+			x:12,
+			y:48
+		},
+		{
+			//wheel left
+			x:0,
+			y:36
+		},
+		{
+			//wheel right
+			x:24,
+			y:36
+		},
+		{
+			//bottom left
+			x:0,
+			y:48
+		},
+		{
+			//bottom right
+			x:24,
+			y:48
+		},
+		{
+			//top center
+			x:12,
+			y:0
+		}
+	];
+
+	var levels =
+	[
+		{
+			name:'level0',
+			title:'Introduction',
+			map:'level0.bmp'
+		},
+		{
+			name:'level1',
+			title:'Get moving',
+			map:'level1.bmp'
+		}
+	];
+	function preload()
+	{
+		var texture_list = 
+		[
+			'basicbrick.png',
+			'basic_enemy.png',
+			'dummy.png',
+			'ducky.png',
+			'bullet.png',
+			'ladder.png',
+			'level0.bmp',
+			'level1.bmp'
+		];
+		var texture_count = texture_list.length;
+		var textures_loaded = 0;
+		for(var i=0;i<texture_list.length;i++)
+		{
+			var name = texture_list[i].split('/')[texture_list[i].split('/').length-1];
+			textures[name] =
+			{
+				name:name,
+				file:texture_list[i],
+				image: new Image()
+			};
+			textures[name].image.onload = function()
+			{
+				textures_loaded++;
+				if(textures_loaded >= texture_count)
+				{
+					load_check();
+				}
+			}
+			textures[name].image.src = texture_list[i];
+		}
+	}
+	function load_check()
+	{
+                init();
+	}
+	function init()
+	{
+		console.log('LOADED');
+
+		levelmap = document.createElement('canvas');
+        	levelctx = levelmap.getContext('2d');
+
+		// create an new instance of a pixi stage
+		//stage = new PIXI.Stage(0x66FF99);
+		stage = new PIXI.Stage(0xffffff);
+
+		gfx_preview_border.position = {x:98,y:48};
+		gfx_preview_border.lineStyle(2,0x000066,255);
+		gfx_preview_border.drawRect(0,0,viewport.x+4,viewport.y+4);
+		stage.addChild(gfx_preview_border);
+		cnt_level_preview.position = {x:100,y:50};
+		stage.addChild(cnt_level_preview);
+ 	
+		// create a renderer instance.
+		renderer = PIXI.autoDetectRenderer(editor.x,editor.y);
+		renderer.backgroundColor = 0x666666;
+ 	
+		// add the renderer view element to the DOM
+		document.body.appendChild(renderer.view);
+		$('body').on('keydown',function(event){keyhandler(event,'keydown');});
+		$('body').on('keyup',  function(event){keyhandler(event,'keyup');});
+ 	
+		// create a texture from an image path
+		//THIS SHOULD BE LOADED FROM THE ASSET LOADER
+		txt_dummy =		PIXI.Texture.fromImage(textures['dummy.png'].file);
+		txt_dummy_duck =	PIXI.Texture.fromImage(textures['ducky.png'].file);
+		txt_bullet =		PIXI.Texture.fromImage(textures['bullet.png'].file);
+		txt_ladder = 		PIXI.Texture.fromImage(textures['ladder.png'].file);
+
+		// create a new Sprite using the texture
+		spt_dummy = new PIXI.Sprite(txt_dummy);
+ 	
+		// center the sprites anchor point
+		spt_dummy.anchor.x = 0;
+		spt_dummy.anchor.y = 0;
+
+		for(var i=0;i<max_bullets;i++)
+		{
+			bullets[i] = new PIXI.Sprite(txt_bullet);
+			bullets[i].anchor.x = 0.5;
+			bullets[i].anchor.y = 0.5;
+			bullets[i].visible = false;
+		}
+
+		txt_basic_block = PIXI.Texture.fromImage(textures['basicbrick.png'].file);
+		txt_basic_enemy = PIXI.Texture.fromImage(textures['basic_enemy.png'].file);
+
+		stage_level(current_level);
+
+		requestAnimationFrame( animate );
+	}
+	function stage_level(level)
+	{
+		cnt_level_preview.removeChildren();
+
+		h_speed = 0;
+		v_speed = 0;
+
+		jumping = false;
+		v_speed = 0;
+		v_drop = 0;
+
+                levelmap_width  = parseInt(textures[levels[level].map].image.width);
+                levelmap_height = parseInt(textures[levels[level].map].image.height);
+                levelmap.width  = levelmap.width;
+                levelmap.height = levelmap.height;
+	
+                levelctx.drawImage(textures[levels[level].map].image, 0, 0);
+                leveldata = levelctx.getImageData(0,0,levelmap_width,levelmap_height);
+		//Draw the farthest background
+		//Draw the closer background
+		draw_backgrounds();
+
+		//Draw the layer that the player interacts with
+		var level_start = draw_level();
+ 	
+		cnt_character_bubble.removeChildren();
+		cnt_character_bubble.addChild(spt_dummy);
+		for(var i=0;i<bullets.length;i++)
+		{
+			cnt_character_bubble.addChild(bullets[i]);
+		}
+
+		for(var i=0;i<basic_enemies.length;i++)
+		{
+			cnt_character_bubble.addChild(basic_enemies[i].sprite);
+		}
+		//add the character bubble (this is in front of all the other layers so far)
+		cnt_level_preview.addChild(cnt_character_bubble);
+		
+		//now draw the foreground layer if there is one (this is stuff that the player and
+		//enemies can move behind but cannot interact with).
+		draw_foreground();
+
+		// move the sprite t the center of the screen
+		set_character_position(level_start.i*24,level_start.j*24);
+	}
+	function animate()
+	{
+		if(varijump && jumptime)
+		{
+			v_speed-=1;
+			if(v_speed < jumpspeed)
+			{
+				jumptime = false;
+				v_speed = jumpspeed;
+			}
+		}
+	    	requestAnimationFrame( animate );
+ 	
+		for(var i=flying_bullets.length-1;i>=0;i--)
+		{
+			if(!bullet_move(flying_bullets[i]))
+			{
+				flying_bullets[i].bullet.visible = false;
+				bullets.push(flying_bullets[i].bullet)
+				flying_bullets.splice(i,1);
+			}
+		}
+		for(var i=0;i<basic_enemies.length;i++)
+		{
+			if(basic_enemies[i].direction != 0)
+			{
+				var newpos = basic_enemies[i].sprite.position.x + basic_enemies[i].direction*basic_enemy_speed;
+				if((basic_enemies[i].direction > 0 && newpos >= basic_enemies[i].right_bound) || (basic_enemies[i].direction < 0 && newpos <= basic_enemies[i].left_bound))
+				{
+					//turn around
+					basic_enemies[i].sprite.width *= -1;
+					basic_enemies[i].direction *= -1;
+				}
+				basic_enemies[i].sprite.position.x += basic_enemies[i].direction*basic_enemy_speed;
+			}
+		}
+		new_vertical_speed(spt_dummy.position.x,spt_dummy.position.y);
+
+		new_horizontal_speed(spt_dummy.position.x,spt_dummy.position.y+v_speed);
+
+
+		set_character_position(spt_dummy.position.x + h_speed,spt_dummy.position.y + v_speed);
+
+	    	// render the stage   
+	    	renderer.render(stage);
+	}
+	function set_character_position(x,y)
+	{
+		spt_dummy.position.x = x;
+		spt_dummy.position.y = y;
+
+		ntx = x-viewport_half.x;
+		nty = y-viewport_half.y;
+
+		ntx = (ntx < 0 ? 0 : (ntx > viewport_bound.x ? viewport_bound.x : ntx));
+		nty = (nty < 0 ? 0 : (nty > viewport_bound.y ? viewport_bound.y : nty));
+
+		//Slowest
+		level_tile_4.tilePosition.x = parseInt(-ntx/4);
+		level_tile_4.tilePosition.y = parseInt(-nty/4);
+
+		//Slower
+		level_tile_3.tilePosition.x = parseInt(-ntx/2);
+		level_tile_3.tilePosition.y = parseInt(-nty/2);
+
+		//Normal
+		level_tile_2.tilePosition.x = -ntx;
+		level_tile_2.tilePosition.y = -nty;
+
+		//Faster
+		level_tile_1.tilePosition.x = -ntx;
+		level_tile_1.tilePosition.y = -nty;
+
+		//Fastest
+		level_tile_0.tilePosition.x = -ntx*2;
+		level_tile_0.tilePosition.y = -nty*2;
+
+		cnt_character_bubble.position.x = -ntx;
+		cnt_character_bubble.position.y = -nty;
+	}
+	function bullet_move(bullet_obj)
+	{
+		var new_x = bullet_obj.bullet.position.x + bullet_obj.direction*bullet_speed;
+		var col = test_collision(new_x,bullet_obj.bullet.position.y,'bullet');
+		if(col.collision)
+		{
+			switch(col.collision_type)
+			{
+				case 'wall':
+					return(false);
+					break;
+				case 'basic_enemy':
+					basic_enemies[col.collision_index].sprite.visible = false;
+					//SHOULD REALLY BE REMOVEING THE SPRITE FROM THE CONTAINER HERE
+					basic_enemies.splice(col.collision_index,1);
+					return(false);
+					break;
+			}
+		}
+		else
+		{
+			bullet_obj.bullet.position.x = new_x;
+			return(true);
+		}
+	}
+	function draw_level()
+	{
+		/*
+		 * The way I'm going to o about doing the big 2-d scrolling map is to
+		 * draw all of the static parts of the level onto a regular 2d canvas
+		 * and then create an image from that which I will then use as a tiling sprite.
+		 * the tiling sprite will be behind the dynamic elements and will just scroll
+		 * acording to the camera position.
+		 *
+		 * The camera position will have bounds set according to the size of the
+		 * level canvas.
+		 *
+		 * For the dynamic elements I'm thinking maybe place them all in a container
+		 * and draw them using the true map coordinates and then just move the container
+		 * so that the player is in the middle.  The first problem I can think of is
+		 * what would be the best way to make sure only relevant sprites are being drawn?
+		 * That shouldn't be too difficult as the only sprites that should be drawn are
+		 * the player, bullets and enemies (and maybe any moving postions of the map).
+		 *
+		 * first step is deal with the level, then do the player and worry about the 
+		 * other stuff (which doesn't exist right now) later.
+		 */
+		//sketch_pad: the canvas element
+		//sketch_ctx: the 2d context
+		sketch_pad.width  = levelmap_width*24;
+		sketch_pad.height = levelmap_height*24;
+
+		viewport_bound.x = (levelmap_width*24)  - viewport.x;
+		viewport_bound.y = (levelmap_height*24) - viewport.y;
+
+		var level_start;
+		//Here you should loop through the existing level sprites and delete them
+		//before destroying the references to them
+		level_sprites = [];
+		collision_map = [];
+		basic_enemies = [];
+		var tmp_enemy = null;
+		var sc = 0;
+		for(var j=0;j<levelmap_height;j++)
+		{
+			for(var i=0;i<levelmap_width;i++)
+			{
+				var red   = get_level_data_point(i,j,0);
+				var green = get_level_data_point(i,j,1);
+				var blue  = get_level_data_point(i,j,2);
+				if(red == 255)
+				{
+					if(tmp_enemy == null)
+					{
+						//basic enemy
+						tmp_enemy = 
+						{
+							x:-1,
+							y:j*24,
+							sprite: new PIXI.Sprite(txt_basic_enemy),
+							left_bound:i*24+12,
+							right_bound:i*24+12,
+							box_width:12,
+							box_height:24,
+							direction:1
+						};
+					}
+					else
+					{
+						tmp_enemy.right_bound = i*24+12;
+					}
+				}
+				else if(red != 255 && tmp_enemy != null)
+				{
+					tmp_enemy.x = tmp_enemy.left_bound+parseInt((tmp_enemy.right_bound - tmp_enemy.left_bound)/2);
+					tmp_enemy.sprite.anchor.x = 0.5;
+					tmp_enemy.sprite.anchor.y = 0.5;
+					tmp_enemy.sprite.position.x = tmp_enemy.x;
+					tmp_enemy.sprite.position.y = tmp_enemy.y;
+					basic_enemies.push(tmp_enemy);
+					tmp_enemy = null;
+				}
+				if(green == 255)
+				{
+					sketch_ctx.drawImage(textures['basicbrick.png'].image,i*24,j*24);
+
+					if(collision_map[i] == null)
+					{
+						collision_map[i] = [];
+					}
+					collision_map[i][j] = 
+					{
+						top:	j*24,
+						bottom: j*24+24,
+						left:	i*24,
+						right:	i*24+24,
+						type:	'wall'
+					}
+				}
+				else if(green == 127)
+				{
+					sketch_ctx.drawImage(textures['ladder.png'].image,i*24,j*24);
+					if(collision_map[i] == null)
+					{
+						collision_map[i] = [];
+					}
+					collision_map[i][j] = 
+					{
+						top:	j*24,
+						bottom: j*24+24,
+						left:	i*24+11,
+						right:	i*24+13,
+						type:	'ladder'
+					}
+				}
+				if(blue == 200)
+				{
+					level_start = {i:i,j:j};
+				}
+				else if(blue == 255)
+				{
+					if(collision_map[i] == null)
+					{
+						collision_map[i] = [];
+					}
+					collision_map[i][j] = 
+					{
+						start:true
+					}
+				}
+			}
+		}
+		//This is the layer that the user interacts with.  The player is on this level
+		txt_level_2 = PIXI.Texture.fromImage(sketch_pad.toDataURL());
+		level_tile_2 = new PIXI.extras.TilingSprite(txt_level_2,viewport.x,viewport.y);
+		//level_tile_2.tilePosition.y = -120;
+		cnt_level_preview.addChild(level_tile_2);
+		return(level_start);
+	}
+	function draw_backgrounds()
+	{
+		//This is just temporary as I don't have a background to add
+		//clear out the sketch canvas and use it as a background
+		sketch_pad.width = sketch_pad.width;
+
+		txt_level_4 = PIXI.Texture.fromImage(sketch_pad.toDataURL());
+		level_tile_4 = new PIXI.extras.TilingSprite(txt_level_4,viewport.x,viewport.y);
+		cnt_level_preview.addChild(level_tile_4);
+
+		txt_level_3 = PIXI.Texture.fromImage(sketch_pad.toDataURL());
+		level_tile_3 = new PIXI.extras.TilingSprite(txt_level_3,viewport.x,viewport.y);
+		cnt_level_preview.addChild(level_tile_3);
+	}
+	function draw_foreground()
+	{
+		//This is just temporary as I don't have a foreground to add
+		//clear out the sketch canvas and use it as a foreground
+		sketch_pad.width = sketch_pad.width;
+
+		txt_level_1 = PIXI.Texture.fromImage(sketch_pad.toDataURL());
+		level_tile_1 = new PIXI.extras.TilingSprite(txt_level_1,viewport.x,viewport.y);
+		cnt_level_preview.addChild(level_tile_1);
+
+		txt_level_0 = PIXI.Texture.fromImage(sketch_pad.toDataURL());
+		level_tile_0 = new PIXI.extras.TilingSprite(txt_level_0,viewport.x,viewport.y);
+		cnt_level_preview.addChild(level_tile_0);
+	}
+	function get_level_data_point(x,y,c)
+	{
+		if(x >= 0 && y >= 0 && x < levelmap_width && y < levelmap_height && c >=0 && c < 4)
+		{
+			return(leveldata.data[4*(x + levelmap_width*y) + c]);
+		}
+		return(-1);
+	}
+	function keyhandler(event,type)
+	{
+		switch(event.which)
+		{
+			//up: 	38
+			case 38:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.up = true;
+					ladder_motion = -1;
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.up = false;
+					ladder_motion = 0;
+				}
+				break;
+			//down:	40
+			case 40:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.down = true;
+					ladder_motion = 1;
+					if(!on_ladder)
+					{
+						duck = true;
+						spt_dummy.texture = txt_dummy_duck;
+					}
+
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.down = false;
+					ladder_motion = 0;
+					duck = false;
+					spt_dummy.texture = txt_dummy;
+				}
+				break;
+			//left:	37
+			case 37:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.left = true;
+					current_h_dirrection = -1;
+					going = -1;
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.left = false;
+					if(going == -1)
+					{
+						going = 0;
+					}
+				}
+				break;
+			//right:39
+			case 39:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.right = true;
+					current_h_dirrection = 1;
+					going = 1;
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.right = false;
+					if(going == 1)
+					{
+						going = 0;
+					}
+				}
+				break;
+			//space:32
+			case 32:
+				event.preventDefault();
+				if(type == 'keydown' && !keystates[32])
+				{
+					key_reg.jump = true;
+					keystates[32] = true;
+					if(!duck)
+					{
+						jump();
+					}
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.jump = false;
+					keystates[32] = false;
+					if(varijump)
+					{
+						jumptime = false;
+					}
+				}
+				break;
+			case 16:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.run = true;
+					max_speed = high_speed;
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.run = false;
+					max_speed = low_speed;
+				}
+				break;
+
+			//d:68
+			case 68:
+				event.preventDefault();
+				if(type == 'keydown')
+				{
+					key_reg.shoot = true;
+					shoot();
+				}
+				else if(type == 'keyup')
+				{
+					key_reg.shoot = false;
+				}
+				break;
+
+			default:
+				console.log('Key was: ',event.which,event);
+
+		}
+	}
+	function shoot()
+	{
+		if(bullets.length > 0)
+		{
+			var t_bull = bullets.pop();
+			t_bull.rotation = (current_h_dirrection == 1?0:Math.PI);
+			t_bull.position.x = spt_dummy.position.x+(current_h_dirrection==1?24:0);
+			t_bull.position.y = spt_dummy.position.y+24;
+			t_bull.visible = true;
+			flying_bullets.push(
+			{
+				direction:	current_h_dirrection,
+				bullet:		t_bull,
+			});
+		}
+
+	}
+	function jump(jumpup)
+	{
+		var jump_thresh = 5;
+		if(jumpup != null && jumpup < jump_thresh)
+		{
+			if(jumping && v_speed < 0)
+			{
+				v_speed = Math.abs(((jump_thresh - jumpup)/jump_thresh)*jumpspeed);
+			}
+		}
+		else
+		{
+			if(!jumping)
+			{
+				jumping = true;
+				peak = false;
+				if(varijump)
+				{
+					v_speed = 0;
+					jumptime = true;
+				}
+				else
+				{
+					v_speed = jumpspeed;
+				}
+				v_drop = 0;
+				//walljumped = false;
+				walljump = false;
+				last_walljump_dir = 0;
+				//wall_jump_hit = false;
+			}
+			else if(jumping)
+			{
+				if(dbljump && !peak)
+				{
+					peak = true;
+					//v_speed = jumpspeed;
+					v_speed = 0;
+					if(varijump)
+					{
+						v_speed = 0;
+						jumptime = true;
+					}
+					else
+					{
+						v_speed = jumpspeed;
+					}
+				}
+				//else if(walljump && !walljumped)// && wall_jump_frames > 0)
+				else if(walljump && walljump_dir != last_walljump_dir)//!walljumped)// && wall_jump_frames > 0)
+				{
+					last_walljump_dir = walljump_dir;
+					//walljumped = true;
+					wall_jump_frames = 0;
+					//v_speed = jumpspeed;
+					if(varijump)
+					{
+						v_speed = 0;
+						jumptime = true;
+					}
+					else
+					{
+						v_speed = jumpspeed;
+					}
+					v_speed = 0;
+					v_drop = 0;
+				}
+			}
+		}
+	}
+	function new_vertical_speed(x,y)
+	{
+		var crash = false;
+
+		var oldspeed = v_speed;
+
+		if(!on_ladder)
+		{
+			if(v_speed < max_drop)
+			{
+				v_speed += acc;
+			}
+			if(v_speed > max_drop)
+			{
+				v_speed = max_drop;
+			}
+		}
+		else
+		{
+			v_speed = ladder_motion*ladder_climb;
+		}
+		var new_speed = v_speed;
+		new_pos_x = x;
+		new_pos_y = y+v_speed;
+		var col = test_collision(new_pos_x,new_pos_y,'player');
+		if(col.collision)
+		{
+			if(col.ladder)
+			{
+				if(on_ladder)
+				{
+					if(col.collision_type == 'wall')
+					{
+						if(ladder_motion > 0)
+						{
+							var shim = 24 - Math.abs(spt_dummy.position.y % 24);
+							if(shim != 24)
+							{
+								v_speed = shim;
+							}
+							else
+							{
+								v_speed = 0;
+							}
+						}
+						else if(ladder_motion < 0)
+						{
+							var shim = Math.abs(spt_dummy.position.y % 24);
+							if(shim != 0)
+							{
+								v_speed = -shim;
+							}
+							else
+							{
+								v_speed = 0;
+							}
+						}
+					}
+					else if(col.collision_type == 'basic_enemy')
+					{
+						stage_level(current_level);
+					}
+				}
+				else
+				{
+					v_speed = 0;
+					on_ladder = true;
+				}
+			}
+			else if(col.collision_type == 'wall')
+			{
+				if(on_ladder)
+				{
+					v_speed = 0;
+				}
+				on_ladder = false;
+				if(v_speed > 0)
+				{
+					jumping = false;
+					if(v_drop > max_v_drop)
+					{
+						stage_level(current_level);
+					}
+					v_speed = 0;
+					v_drop = 0;
+				}
+				else
+				{
+					peak = true;
+					v_speed = acc;
+					v_drop = acc;
+					jumptime = false;
+				}
+			}
+			else if(col.collision_type == 'basic_enemy')
+			{
+				on_ladder = false;
+				stage_level(current_level);
+			}
+			else
+			{
+				on_ladder = false;
+			}
+		}
+		else
+		{
+			//debounce the player at the top of the ladder
+			if(on_ladder && ladder_motion == -1)
+			{
+				var shim = 24 - Math.abs((spt_dummy.position.y+v_speed) % 24);
+				if(shim != 24)
+				{
+					v_speed += shim;
+				}
+			}
+			on_ladder = false;
+			v_drop += v_speed;
+			if(oldspeed < 0 && v_speed >= 0)
+			{
+				peak = true;
+			}
+		}
+		if(col.collision_type == 'wall' && key_reg.down && new_speed > 0)
+		{
+			on_ladder = false;
+			duck = true;
+			spt_dummy.texture = txt_dummy_duck;
+		}
+		else
+		{
+			duck = false;
+			spt_dummy.texture = txt_dummy;
+		}
+	}
+
+	function new_horizontal_speed(x,y)
+	{
+		var final_speed = (duck?crawl_speed:max_speed);
+		if(on_ladder)
+		{
+			h_speed = going*final_speed;
+		}
+	    	else if(going != 0)
+	    	{
+		    	if(going > 0)
+		    	{
+				if(h_speed < 0)
+				{
+					h_speed += dec;
+				}
+			    	else if(h_speed < final_speed)
+			    	{
+				   		h_speed += acc;
+			    	}
+			    	if(h_speed > final_speed)
+			    	{
+					h_speed = final_speed;
+			    	}
+		    	}
+		    	else if(going < 0)
+		    	{
+				if(h_speed > 0)
+				{
+			   		h_speed -= dec;
+				}
+			    	else if(h_speed > -final_speed)
+			    	{
+			   		h_speed -= acc;
+			    	}
+			    	if(h_speed < -final_speed)
+			    	{
+			  		h_speed = -final_speed;
+			    	}
+		    	}
+	    	}
+	    	else if (h_speed != 0)
+	    	{
+		    	if(h_speed < 0)
+		    	{
+			    	h_speed += (jumping?air_dec:dec);
+			    	if(h_speed > 0)
+			    	{
+				    	h_speed = 0;
+			    	}
+		    	}
+		    	else
+		    	{
+			    	h_speed -= (jumping?air_dec:dec);
+			    	if(h_speed < 0)
+			    	{
+				    	h_speed = 0;
+			    	}
+		    	}
+	    	}
+		var col = test_collision(x+h_speed,y,'player');
+		if(col.collision && col.blocker == true)
+		{
+			switch(col.collision_type)
+			{
+				case 'wall':
+					on_ladder = false;
+					if(h_speed > 0)
+					{
+						if(last_walljump_dir <= 0)
+						{
+							walljump = true;
+							walljumpx = x;
+							walljump_dir = 1;
+						}
+					}
+					else
+					{
+						if(last_walljump_dir >= 0)
+						{
+							walljump = true;
+							walljumpx = x;
+							walljump_dir = -1;
+						}
+					}
+					//if(!walljumped)
+					//{
+						//walljump = true;
+						//walljumpx = x;
+					//}
+					h_speed = 0;
+					break;
+				case 'basic_enemy':
+					stage_level(current_level);
+					break;
+			}
+		}
+		else if(walljump && walljump_dir != last_walljump_dir && Math.abs(walljumpx - x) < 10)
+		{
+			walljump = true;
+		}
+		else
+		{
+			walljump = false;
+		}
+	}
+	function test_collision(x,y,who)
+	{
+		var ret_val =
+		{
+			collision_type:'',
+			collision:false,
+			collision_index:-1,
+			blocker:false,
+			ladder:false
+		}
+		switch(who)
+		{
+			case 'player':
+				if(duck)
+				{
+					top_left = {x:Math.floor(x/24),y:Math.floor((y+24)/24)};
+					top_right = {x:Math.ceil((x/24)+1),y:top_left.y};
+					bottom_left = {x:top_left.x,y:Math.ceil((y/24)+2)};
+					bottom_right = {x:top_right.x,y:bottom_left.y};
+					center_x = x+12;
+					center_y = y+24;
+					box_width = 12;
+					box_height = 24;
+				}
+				else
+				{
+					top_left = {x:Math.floor(x/24),y:Math.floor(y/24)};
+					top_right = {x:Math.ceil(x/24+1),y:top_left.y};
+					bottom_left = {x:top_left.x,y:Math.ceil(y/24+2)};
+					bottom_right = {x:top_right.x,y:bottom_left.y};
+					center_x = x+12;
+					center_y = y+36;
+					box_width = 12;
+					box_height = 12;
+				}
+				break;
+			case 'bullet':
+					top_left = {x:Math.floor((x-3)/24),y:Math.floor((y-1)/24)};
+					top_right = {x:Math.ceil((x+3)/24),y:top_left.y};
+					bottom_left = {x:top_left.x,y:Math.ceil((y+1)/24)};
+					bottom_right = {x:top_right.x,y:bottom_left.y};
+					center_x = x;
+					center_y = y;
+					box_width = 3;
+					box_height = 1;
+				break;
+			default:
+				return(ret_val);
+		}
+		for(var j=top_left.y;j<bottom_left.y;j++)
+		{
+			for(var i=top_left.x;i<top_right.x;i++)
+			{
+				if(collision_map[i] != null && collision_map[i][j] != null)
+				{
+					if(collision_map[i][j].start != null)
+					{
+						current_level++;
+						if(current_level>=levels.length)
+						{
+							current_level = 0;
+						}
+						stage_level(current_level);
+					}
+					else
+					{
+						ret_val.collision = true;
+						switch(collision_map[i][j].type)
+						{
+							case 'ladder':
+								ret_val.ladder = true;
+								break;
+							case 'wall':
+								ret_val.collision_type = 'wall';
+								ret_val.blocker = true;
+								//return(ret_val);
+								break;
+							default:
+								ret_val.collision_type = 'wall';
+								ret_val.blocker = true;
+								//return(ret_val);
+						}
+					}
+				}
+			}
+		}
+		if(ret_val.blocker)
+		{
+			return(ret_val);
+		}
+		for(var i=0;i<basic_enemies.length;i++)
+		{
+			if(Math.abs(center_x - basic_enemies[i].sprite.position.x) <= box_width + basic_enemies[i].box_width)
+			{
+				if(Math.abs(center_y - basic_enemies[i].sprite.position.y) <= box_height + basic_enemies[i].box_height)
+				{
+					ret_val.collision = true;
+					ret_val.collision_type = 'basic_enemy';
+					ret_val.blocker = true;
+					ret_val.collision_index = i;
+					return(ret_val);
+				}
+			}
+		}
+		return(ret_val);
+	}
+</script>
+<html>
+	<head>
+		<title>The Platformer</title>
+		<style>
+			body {
+				margin: 0;
+				padding: 0;
+				background-color: #ffffff;
+			}
+		</style>
+	</head>
+	<body>
+	</body>
+</html>
+<script type="text/javascript">
+	preload();
+</script>
+ 
